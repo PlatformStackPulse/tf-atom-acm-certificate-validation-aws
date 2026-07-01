@@ -1,4 +1,9 @@
-# Terraform Module Template
+# tf-atom-acm-certificate-validation-aws
+
+Terraform atom that performs DNS validation of an AWS ACM certificate — it wires an issued
+`aws_acm_certificate` to its Route 53 validation records and blocks until the certificate
+reaches the `ISSUED` state, so downstream resources (ALB/CloudFront/API Gateway listeners)
+can depend on a certificate that is guaranteed to be validated.
 
 <!-- Badges: Update REPO_OWNER/REPO_NAME after creating from template -->
 [![CI](https://github.com/PlatformStackPulse/terraform-atom-molecule-module-template/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
@@ -13,18 +18,20 @@ A production-ready template for creating Terraform modules following the **one m
 
 ## Features
 
-- **One Module Per Repo** — Module lives at the root; no nested `modules/` directory
-- **Registry Publishing** — Auto-publish to Terraform Registry, Artifactory, or GitLab on release
-- **Native Terraform Testing** — `terraform test` with mock providers (no external tools)
-- **Security Scanning** — Trivy IaC scanning for HIGH/CRITICAL vulnerabilities
-- **Linting** — TFLint with AWS ruleset (preset "all")
-- **Auto Documentation** — terraform-docs generates README sections on every commit
-- **GitHub Actions CI/CD** — Workflows for the full module lifecycle
-- **Auto Release** — CI passes on main → auto-tag → GitHub Release created
-- **Pre-Commit Hooks** — Format, validate, lint, docs, and security on every commit
-- **Conventional Commits** — Enforced commit message format
-- **Semantic Versioning** — Automated version management and releases
-- **DevContainer** — VS Code remote development ready
+- **DNS certificate validation** — Completes ACM validation via Route 53 DNS records and waits for `ISSUED`.
+- **Conditional creation** — `enabled = false` provisions nothing, making it safe to toggle per environment.
+- **tf-label naming & tagging** — Standard `namespace`/`stage`/`name` labelling and consistent tags via the shared `tf-label` module (`context.tf`).
+- **Context chaining** — Accepts a full `context` object so it composes cleanly with other tf-label atoms/molecules.
+- **Native Terraform tests** — `terraform test` unit suite runs against a mock AWS provider (no credentials required).
+- **CI/CD quality gates** — Format, validate, TFLint, Trivy, terraform-docs, and conventional-commit checks on every push/PR.
+
+### Framework capabilities (from the module template)
+
+- **One Module Per Repo** — Module lives at the root; no nested `modules/` directory.
+- **Registry Publishing** — Auto-publish to Terraform Registry, Artifactory, or GitLab on release.
+- **Auto Documentation** — terraform-docs regenerates the `BEGIN_TF_DOCS` section on every commit.
+- **Auto Release** — CI passes on main → auto-tag (semver) → GitHub Release created.
+- **Pre-Commit Hooks** — Format, validate, lint, docs, and security on every commit.
 
 ## CI Pipeline
 
@@ -77,38 +84,31 @@ See [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md) for detailed instructions.
 
 ## Usage
 
-### From GitHub
-
 ```hcl
-module "this" {
-  source = "github.com/PlatformStackPulse/terraform-aws-my-module?ref=v1.0.0"
+module "acm_certificate_validation" {
+  source = "git::https://github.com/PlatformStackPulse/tf-atom-acm-certificate-validation-aws.git?ref=v1.0.0"
 
-  name        = "my-resource"
-  environment = "dev"
-  namespace   = "myorg"
+  # tf-label naming inputs (required)
+  namespace = "eg"
+  stage     = "prod"
+  name      = "web"
+
+  # Set to false to skip validation entirely (e.g. in environments without DNS)
+  enabled = true
 
   tags = {
-    Project = "example"
+    Project = "platform"
     Owner   = "platform-engineering"
   }
 }
 ```
 
-### From Terraform Registry
+The module exposes the `enabled` flag as an output so consumers can branch on whether
+validation was performed:
 
 ```hcl
-module "this" {
-  source  = "PlatformStackPulse/my-module/aws"
-  version = "~> 1.0"
-
-  name        = "my-resource"
-  environment = "dev"
-  namespace   = "myorg"
-
-  tags = {
-    Project = "example"
-    Owner   = "platform-engineering"
-  }
+output "acm_validation_enabled" {
+  value = module.acm_certificate_validation.enabled
 }
 ```
 
@@ -312,6 +312,28 @@ No resources.
 |------|-------------|
 | <a name="output_enabled"></a> [enabled](#output\_enabled) | Whether the module is enabled. |
 <!-- END_TF_DOCS -->
+
+## Tests
+
+Native `terraform test` suites live under `tests/`:
+
+- **`tests/unit/`** — Runs against a **mock AWS provider** (no credentials, no real AWS
+  calls). Assertions only touch plan-known values: the `enabled` output and the tf-label
+  `id` (`eg-test-thing`). This is the suite CI runs on every push/PR.
+- **`tests/integration/`** — Reserved for tests that hit a real AWS provider (create real
+  ACM/Route 53 resources). Disabled by default; enable with credentials when needed.
+
+```bash
+# Unit tests (mock provider — safe, no AWS credentials required)
+terraform init -backend=false
+terraform test -test-directory=tests/unit
+
+# Or via the Makefile
+make test-unit
+
+# Integration tests (real AWS — costs may be incurred)
+terraform test -test-directory=tests/integration
+```
 
 ## Learning Materials
 
